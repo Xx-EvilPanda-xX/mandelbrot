@@ -1,0 +1,1 @@
+.\mandelbrot.exe 60000 40000 -2.0 -1.0 0.875 1.0 mandel_mega.png

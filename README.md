@@ -1,0 +1,1 @@
+A single threaded mandelbrot set image generator that parses its args. :)

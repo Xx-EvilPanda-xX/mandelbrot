@@ -26,6 +26,7 @@ fn main() {
             panic!("Error: {}", e)
         }
     };
+    println!("Finished rendering, writing to file...");
 
     write_to_img(config.file_name.as_str(), &buffer[..], dims);
 }
@@ -33,8 +34,8 @@ fn main() {
 fn get_slices(config: &Config) -> Vec<Slice> {
     let mut slices = Vec::new();
     let rows_per_slice = config.dimensions.1 / config.num_threads;
-    for y in 0..config.dimensions.1 + rows_per_slice {
-        if y % rows_per_slice == 0 {
+    for y in 0..config.dimensions.1 {
+        if y % rows_per_slice == 0 || y == config.dimensions.1 {
             let dim_y = if y + rows_per_slice <= config.dimensions.1 {
                 rows_per_slice
             } else {

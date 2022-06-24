@@ -1,6 +1,6 @@
 use std::ops::{Mul, Add, Sub};
 
-pub struct ComplexPoint<T: Mul + Add> {
+pub struct ComplexPoint<T: Mul + Add + Sub + Copy> {
     pub re: T,
     pub im: T
 }
@@ -23,5 +23,16 @@ impl<T> ComplexPoint<T>
     pub fn add(&self, other: &ComplexPoint<T>) -> ComplexPoint<T> {
         ComplexPoint { re: self.re + other.re,
             im: self.im + other.im }
+    }
+}
+
+impl<T> Clone for ComplexPoint<T>
+    where T: Mul<Output = T> +
+            Add<Output = T> +
+            Sub<Output = T> +
+            Copy
+{
+    fn clone(&self) -> Self { 
+        ComplexPoint { re: self.re, im: self.im }
     }
 }

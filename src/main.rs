@@ -1,41 +1,106 @@
 use math::ComplexPoint;
 use image::{codecs::png::PngEncoder, ColorType, ImageEncoder};
+use core::panic;
 use std::fs;
 use std::env;
 use std::str::FromStr;
-
+use thread_pool::ThreadPool;
+#[cfg(test)]
 mod test;
 mod math;
+mod thread_pool;
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     let config = parse_args(&args);
     let dims = config.dimensions;
-    let mut buffer = vec![0; dims.0 as usize * dims.1 as usize];
-    render(&mut buffer, dims, &config.lower_left, &config.upper_right);
-    write_to_img(config.file_name.as_str(), &buffer, dims)
+
+    let slices = get_slices(&config);
+    let mut pool = ThreadPool::new(config.num_threads);
+
+    start_render_jobs(&mut pool, &slices, &config, dims);
+
+    let buffer = match pool.join_all(dims) {
+        Ok(b) => b,
+        Err(e) => {
+            panic!("Error: {}", e)
+        }
+    };
+
+    write_to_img(config.file_name.as_str(), &buffer[..], dims);
+}
+
+fn get_slices(config: &Config) -> Vec<Slice> {
+    let mut slices = Vec::new();
+    let rows_per_slice = config.dimensions.1 / config.num_threads;
+    for y in 0..config.dimensions.1 + rows_per_slice {
+        if y % rows_per_slice == 0 {
+            let dim_y = if y + rows_per_slice <= config.dimensions.1 {
+                rows_per_slice
+            } else {
+                config.dimensions.1 - y
+            };
+            
+            slices.push(Slice {dims: (config.dimensions.0, dim_y),
+                            pos: (0, y)});
+        }
+    }
+
+    slices
+}
+
+fn start_render_jobs(pool: &mut ThreadPool, slices: &Vec<Slice>, config: &Config, dims: (u32, u32)) {
+    for i in 0..config.num_threads.try_into().unwrap() {
+        let local_dims = slices[i].dims;
+        let pos = slices[i].pos;
+        let lr = config.lower_left.clone();
+        let ur = config.upper_right.clone();
+
+        match pool.run_job(Box::new(move || {
+            render(local_dims, dims, pos, &lr, &ur)
+        })) {
+            Ok(_) => {},
+            Err(e) => {
+                panic!("Error: {}", e)
+            }
+        };
+    }
+}
+
+struct Slice {
+    dims: (u32, u32),
+    pos: (u32, u32)
 }
 
 fn write_to_img(file_name: &str, buf: &[u8], dim: (u32, u32)) {
     let file = fs::File::create(file_name).expect("failed to create file");
     let encoder = PngEncoder::new(file);
-    encoder.write_image(buf, dim.0, dim.1, ColorType::L8).expect("couldn't write image");
+    encoder.write_image(buf, dim.0, dim.1, ColorType::Rgb8).expect("couldn't write image");
 }
 
-fn render(buf: &mut [u8], dims: (u32, u32), lower_left: &ComplexPoint<f64>, upper_right: &ComplexPoint<f64>) {
-    if buf.len() as u32 != dims.0 * dims.1 {
-        panic!("Incorrect buffer length");
-    }
+fn render(local_dims: (u32, u32), global_dims: (u32, u32), pos: (u32, u32), lower_left: &ComplexPoint<f64>, upper_right: &ComplexPoint<f64>) -> Vec<u8> {
+    let mut buf = vec![0; local_dims.0 as usize * local_dims.1 as usize * 3];
 
-    let (w, h) = (dims.0 as usize, dims.1 as usize);
+    let (w, h) = local_dims;
     for y in 0..h {
         for x in 0..w {
-            let c = pixel_to_complex((x as u32, y as u32), dims, lower_left, upper_right);
-            buf[(y * w) + x] = match mandel_iter(&c, 255) {
+            let pix = (x + pos.0, y + pos.1);
+            let c = pixel_to_complex(pix, global_dims, lower_left, upper_right);
+            let col = match mandel_iter(&c, 255) {
                 Some(val) => val as u8,
                 None => 0
-            }
+            };
+
+            let y_i = y as usize;
+            let w_i = w as usize;
+            let x_i = x as usize;
+            buf[(y_i * w_i * 3) + (x_i * 3)] = col;
+            buf[(y_i * w_i * 3) + (x_i * 3) + 1] = col / 2;
+            buf[(y_i * w_i * 3) + (x_i * 3) + 2] = col / 4;
         }
     }
+
+    buf
 }
 
 fn mandel_iter(c: &ComplexPoint<f64>, iters: u32) -> Option<u32> {
@@ -73,12 +138,13 @@ struct Config {
     dimensions: (u32, u32),
     lower_left: ComplexPoint<f64>,
     upper_right: ComplexPoint<f64>,
-    file_name: String
+    file_name: String,
+    num_threads: u32
 }
 
 fn parse_args(args: &Vec<String>) -> Config {
-    if args.len() != 6 {
-        println!("USAGE: {} img_width img_height l_l.x,l_l.y u_r.x,u_r.y file_name", args[0]);
+    if args.len() != 7 {
+        println!("USAGE: {} [img_width] [img_height] [ll.x,ll.y] [ur.x,ur.y] [file_name] [num_threads]", args[0]);
         std::process::exit(-1);
     }
 
@@ -95,7 +161,9 @@ fn parse_args(args: &Vec<String>) -> Config {
         Err(e) => panic!("Error: failed to parse complex number because: {}", e)
     };
 
-    Config { dimensions: (buffer_width, buffer_height), lower_left, upper_right, file_name: args[5].clone() }
+    let num_threads = u32::from_str(args[6].as_str()).expect("Failed to parse number of threads");
+
+    Config { dimensions: (buffer_width, buffer_height), lower_left, upper_right, file_name: args[5].clone(), num_threads }
 }
 
 fn parse_complex(string: &String) -> Result<ComplexPoint<f64>, String> {

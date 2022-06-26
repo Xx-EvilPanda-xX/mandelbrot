@@ -26,7 +26,7 @@ fn main() {
             panic!("Error: {}", e)
         }
     };
-    println!("Finished rendering, writing to file...");
+    println!("Finished rendering across {} threads, writing to file...", config.num_threads);
 
     write_to_img(config.file_name.as_str(), &buffer[..], dims);
 }
@@ -56,9 +56,11 @@ fn start_render_jobs(pool: &mut ThreadPool, slices: &Vec<Slice>, config: &Config
         let pos = slices[i].pos;
         let lr = config.lower_left.clone();
         let ur = config.upper_right.clone();
+        let j = config.julia.clone();
 
         match pool.run_job(Box::new(move || {
-            render(local_dims, dims, pos, &lr, &ur)
+            let julia = j.as_ref();
+            render(local_dims, dims, pos, julia, &lr, &ur)
         })) {
             Ok(_) => {},
             Err(e) => {
@@ -79,7 +81,7 @@ fn write_to_img(file_name: &str, buf: &[u8], dim: (u32, u32)) {
     encoder.write_image(buf, dim.0, dim.1, ColorType::Rgb8).expect("couldn't write image");
 }
 
-fn render(local_dims: (u32, u32), global_dims: (u32, u32), pos: (u32, u32), lower_left: &ComplexPoint<f64>, upper_right: &ComplexPoint<f64>) -> Vec<u8> {
+fn render(local_dims: (u32, u32), global_dims: (u32, u32), pos: (u32, u32), julia: Option<&ComplexPoint<f64>>, lower_left: &ComplexPoint<f64>, upper_right: &ComplexPoint<f64>) -> Vec<u8> {
     let mut buf = vec![0; local_dims.0 as usize * local_dims.1 as usize * 3];
 
     let (w, h) = local_dims;
@@ -87,7 +89,7 @@ fn render(local_dims: (u32, u32), global_dims: (u32, u32), pos: (u32, u32), lowe
         for x in 0..w {
             let pix = (x + pos.0, y + pos.1);
             let c = pixel_to_complex(pix, global_dims, lower_left, upper_right);
-            let col = match mandel_iter(&c, 255) {
+            let col = match mandel_iter(c, julia, 255) {
                 Some(val) => val as u8,
                 None => 0
             };
@@ -95,22 +97,25 @@ fn render(local_dims: (u32, u32), global_dims: (u32, u32), pos: (u32, u32), lowe
             let y_i = y as usize;
             let w_i = w as usize;
             let x_i = x as usize;
-            buf[(y_i * w_i * 3) + (x_i * 3)] = col;
-            buf[(y_i * w_i * 3) + (x_i * 3) + 1] = col / 2;
-            buf[(y_i * w_i * 3) + (x_i * 3) + 2] = col / 4;
+            buf[(y_i * w_i * 3) + (x_i * 3)] = col;                 // red
+            buf[(y_i * w_i * 3) + (x_i * 3) + 1] = col / 2;         // green
+            buf[(y_i * w_i * 3) + (x_i * 3) + 2] = col / 4;         // blue
         }
     }
 
     buf
 }
 
-fn mandel_iter(c: &ComplexPoint<f64>, iters: u32) -> Option<u32> {
-    let mut z = ComplexPoint::new(0.0, 0.0);
+fn mandel_iter(c: ComplexPoint<f64>, julia: Option<&ComplexPoint<f64>>, iters: u32) -> Option<u32> {
+    let mut z = c.clone();
     for i in 0..iters {
         if !is_in_circle((z.re, z.im), (0.0, 0.0), 2.0) {
             return Some(i);
         }
-        z = z.mul(&z).add(c);
+        z = z.mul(&z).add(match julia {
+            Some(j) => j,
+            None => &c
+        });
     }
 
     None
@@ -139,13 +144,14 @@ struct Config {
     dimensions: (u32, u32),
     lower_left: ComplexPoint<f64>,
     upper_right: ComplexPoint<f64>,
+    julia: Option<ComplexPoint<f64>>,
     file_name: String,
     num_threads: u32
 }
 
 fn parse_args(args: &Vec<String>) -> Config {
-    if args.len() != 7 {
-        println!("USAGE: {} [img_width] [img_height] [ll.x,ll.y] [ur.x,ur.y] [file_name] [num_threads]", args[0]);
+    if args.len() != 8 {
+        println!("USAGE: {} [img_width] [img_height] [ll.x,ll.y] [ur.x,ur.y] [julia] [file_name] [num_threads]", args[0]);
         std::process::exit(-1);
     }
 
@@ -154,23 +160,34 @@ fn parse_args(args: &Vec<String>) -> Config {
     
     let lower_left = match parse_complex(&args[3]) {
         Ok(val) => val,
-        Err(e) => panic!("Error: failed to parse complex number because: {}", e)
+        Err(e) => panic!("Error: failed to parse complex number because: {} (Expected complex point)", e)
     };
 
     let upper_right = match parse_complex(&args[4]) {
         Ok(val) => val,
-        Err(e) => panic!("Error: failed to parse complex number because: {}", e)
+        Err(e) => panic!("Error: failed to parse complex number because: {} (Expected complex point)", e)
     };
 
-    let num_threads = u32::from_str(args[6].as_str()).expect("Failed to parse number of threads");
+    let julia = match args[5].as_str() {
+        "none" => None,
+        _ => {
+            let j = match parse_complex(&args[5]) {
+                Ok(val) => val,
+                Err(e) => panic!("Error: failed to parse complex number because: {} (Expected complex point or `none`)", e)
+            };
+            Some(j)
+        }
+    };
 
-    Config { dimensions: (buffer_width, buffer_height), lower_left, upper_right, file_name: args[5].clone(), num_threads }
+    let num_threads = u32::from_str(args[7].as_str()).expect("Failed to parse number of threads");
+
+    Config { dimensions: (buffer_width, buffer_height), lower_left, upper_right, julia, file_name: args[6].clone(), num_threads }
 }
 
 fn parse_complex(string: &String) -> Result<ComplexPoint<f64>, String> {
     let index = match string.find(',') {
         Some(i) => i,
-        None => return Err(String::from("must include comma between values"))
+        None => return Err(String::from("structure must be two floating point values separated by a comma"))
     };
 
     let first = &string[..index];

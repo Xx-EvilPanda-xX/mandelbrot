@@ -1,6 +1,6 @@
-use std::thread;
 use std::error;
 use std::fmt;
+use std::thread;
 
 type Job = Box<dyn FnOnce() -> Vec<u8> + Send + 'static>;
 pub struct ThreadPool {
@@ -8,8 +8,8 @@ pub struct ThreadPool {
 }
 
 pub struct Worker {
-   thread: Option<thread::JoinHandle<Vec<u8>>>,
-   id: u32,
+    thread: Option<thread::JoinHandle<Vec<u8>>>,
+    id: u32,
 }
 
 impl ThreadPool {
@@ -19,7 +19,7 @@ impl ThreadPool {
         };
 
         for i in 0..num_workers {
-            pool.workers.push( Worker {
+            pool.workers.push(Worker {
                 thread: None,
                 id: i,
             });
@@ -37,9 +37,11 @@ impl ThreadPool {
                     return Ok(w.id);
                 }
             }
-        };
+        }
 
-        Err(PoolError { why: String::from("No more threads available") })
+        Err(PoolError {
+            why: String::from("No more threads available"),
+        })
     }
 
     pub fn join_all(self, dims: (u32, u32)) -> Result<Vec<u8>, PoolError> {
@@ -54,8 +56,12 @@ impl ThreadPool {
                             out_buf[index] = pix;
                             index += 1;
                         }
-                    },
-                    Err(_) => return Err(PoolError {why: String::from("Failed to join thread") })
+                    }
+                    Err(_) => {
+                        return Err(PoolError {
+                            why: String::from("Failed to join thread"),
+                        })
+                    }
                 }
             }
         }
@@ -63,24 +69,23 @@ impl ThreadPool {
         if index > 0 {
             Ok(out_buf)
         } else {
-            Err(PoolError { why: String::from("No threads running") })
+            Err(PoolError {
+                why: String::from("No threads running"),
+            })
         }
     }
 }
 
 #[derive(Debug)]
 pub struct PoolError {
-    why: String
+    why: String,
 }
 
 impl fmt::Display for PoolError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), std::fmt::Error> { 
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), std::fmt::Error> {
         write!(f, "JobError: {}", self.why)?;
         Ok(())
     }
 }
 
-impl error::Error for PoolError {
-    
-}
-
+impl error::Error for PoolError {}

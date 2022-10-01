@@ -55,7 +55,7 @@ impl ThreadPool {
                             index += 1;
                         }
                     },
-                    Err(_) => return Err(PoolError {why: String::from("Failed to join thread") })
+                    Err(_) => return Err(PoolError { why: String::from("Failed to join thread") })
                 }
             }
         }
@@ -79,8 +79,3 @@ impl fmt::Display for PoolError {
         Ok(())
     }
 }
-
-impl error::Error for PoolError {
-    
-}
-

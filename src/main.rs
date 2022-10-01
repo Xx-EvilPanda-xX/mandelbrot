@@ -5,6 +5,7 @@ use std::fs;
 use std::env;
 use std::str::FromStr;
 use thread_pool::ThreadPool;
+
 #[cfg(test)]
 mod test;
 mod math;
@@ -42,15 +43,24 @@ fn get_slices(config: &Config) -> Vec<Slice> {
                 config.dimensions.1 - y
             };
             
-            slices.push(Slice {dims: (config.dimensions.0, dim_y),
-                            pos: (0, y)});
+            slices.push(
+                Slice {
+                    dims: (config.dimensions.0, dim_y),
+                    pos: (0, y)
+                }
+            );
         }
     }
 
     slices
 }
 
-fn start_render_jobs(pool: &mut ThreadPool, slices: &Vec<Slice>, config: &Config, dims: (u32, u32)) {
+fn start_render_jobs(
+    pool: &mut ThreadPool,
+    slices: &[Slice],
+    config: &Config,
+    dims: (u32, u32)
+) {
     for i in 0..config.num_threads.try_into().unwrap() {
         let local_dims = slices[i].dims;
         let pos = slices[i].pos;
@@ -81,7 +91,14 @@ fn write_to_img(file_name: &str, buf: &[u8], dim: (u32, u32)) {
     encoder.write_image(buf, dim.0, dim.1, ColorType::Rgb8).expect("couldn't write image");
 }
 
-fn render(local_dims: (u32, u32), global_dims: (u32, u32), pos: (u32, u32), julia: Option<&ComplexPoint<f64>>, lower_left: &ComplexPoint<f64>, upper_right: &ComplexPoint<f64>) -> Vec<u8> {
+fn render(
+    local_dims: (u32, u32), 
+    global_dims: (u32, u32), 
+    pos: (u32, u32), 
+    julia: Option<&ComplexPoint<f64>>, 
+    lower_left: &ComplexPoint<f64>, 
+    upper_right: &ComplexPoint<f64>
+) -> Vec<u8> {
     let mut buf = vec![0; local_dims.0 as usize * local_dims.1 as usize * 3];
 
     let (w, h) = local_dims;
@@ -94,12 +111,12 @@ fn render(local_dims: (u32, u32), global_dims: (u32, u32), pos: (u32, u32), juli
                 None => 0
             };
 
-            let y_i = y as usize;
-            let w_i = w as usize;
-            let x_i = x as usize;
-            buf[(y_i * w_i * 3) + (x_i * 3)] = col;                 // red
-            buf[(y_i * w_i * 3) + (x_i * 3) + 1] = col / 2;         // green
-            buf[(y_i * w_i * 3) + (x_i * 3) + 2] = col / 4;         // blue
+            let yi = y as usize;
+            let wi = w as usize;
+            let xi = x as usize;
+            buf[(yi * wi * 3) + (xi * 3)] = col;                 // red
+            buf[(yi * wi * 3) + (xi * 3) + 1] = col / 2;         // green
+            buf[(yi * wi * 3) + (xi * 3) + 2] = col / 4;         // blue
         }
     }
 
@@ -121,7 +138,12 @@ fn mandel_iter(c: ComplexPoint<f64>, julia: Option<&ComplexPoint<f64>>, iters: u
     None
 }
 
-fn pixel_to_complex(pixel: (u32, u32), dims: (u32, u32), lower_left: &ComplexPoint<f64>, upper_right: &ComplexPoint<f64>) -> ComplexPoint<f64> {
+fn pixel_to_complex(
+    pixel: (u32, u32),
+    dims: (u32, u32),
+    lower_left: &ComplexPoint<f64>,
+    upper_right: &ComplexPoint<f64>
+) -> ComplexPoint<f64> {
     assert!(pixel < dims);
     assert!(lower_left.re < upper_right.re);
     assert!(lower_left.im < upper_right.im);
@@ -181,7 +203,14 @@ fn parse_args(args: &Vec<String>) -> Config {
 
     let num_threads = u32::from_str(args[7].as_str()).expect("Failed to parse number of threads");
 
-    Config { dimensions: (buffer_width, buffer_height), lower_left, upper_right, julia, file_name: args[6].clone(), num_threads }
+    Config { 
+        dimensions: (buffer_width, buffer_height),
+        lower_left,
+        upper_right,
+        julia,
+        file_name: args[6].clone(),
+        num_threads
+    }
 }
 
 fn parse_complex(string: &String) -> Result<ComplexPoint<f64>, String> {
@@ -193,7 +222,8 @@ fn parse_complex(string: &String) -> Result<ComplexPoint<f64>, String> {
     let first = &string[..index];
     let second = &string[index + 1..];
 
-    Ok(ComplexPoint::new(f64::from_str(first).expect("Error: failed to parse real"),
-     f64::from_str(second).expect("Error: failed to parse imaginary")))
+    Ok(
+        ComplexPoint::new(f64::from_str(first).expect("Error: failed to parse real"),
+        f64::from_str(second).expect("Error: failed to parse imaginary"))
+    )
 }
-

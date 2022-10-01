@@ -1,9 +1,10 @@
-defult colors (RGB): 1.0,0.5,0.25
+defult colors (RGB): 1,2,4
 
-chinese dragon: re: 0.33, im: 0.51 (color:1,0.33,0.33)
-cauliflower: re: 0.0, im: 0.64 or 0.65
+chinese dragon: re: 0.33, im: 0.51 (color:1,6,6)
+cauliflower aka The Butthole Set (cuz c is the point of the butthole): re: 0.0, im: 0.64 or 0.65
 wierd vortex: re: 0.11, im: -0.62 (When the real number is 0.11 it's dark, and when its 0.1 it's colored)
 astroid field: re: -0.72, im: 0.2 (color:0.66,0.5,1)
+cells: re: -0.6434, im: 0.423
 
 
 Cool note: On the imaginary axis, negative/positive just mirrors the horizontal axis.

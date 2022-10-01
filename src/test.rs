@@ -1,5 +1,5 @@
-use crate::ComplexPoint;
 use crate::pixel_to_complex;
+use crate::ComplexPoint;
 
 #[test]
 fn complex_mul() {

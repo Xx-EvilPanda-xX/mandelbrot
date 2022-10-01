@@ -1,14 +1,13 @@
-use math::ComplexPoint;
-use image::{codecs::png::PngEncoder, ColorType, ImageEncoder};
 use core::panic;
-use std::fs;
+use image::{codecs::png::PngEncoder, ColorType, ImageEncoder};
+use math::ComplexPoint;
 use std::env;
+use std::fs;
 use std::str::FromStr;
 use thread_pool::ThreadPool;
-
+mod math;
 #[cfg(test)]
 mod test;
-mod math;
 mod thread_pool;
 
 fn main() {
@@ -27,7 +26,10 @@ fn main() {
             panic!("Error: {}", e)
         }
     };
-    println!("Finished rendering across {} threads, writing to file...", config.num_threads);
+    println!(
+        "Finished rendering across {} threads, writing to file...",
+        config.num_threads
+    );
 
     write_to_img(config.file_name.as_str(), &buffer[..], dims);
 }
@@ -72,7 +74,7 @@ fn start_render_jobs(
             let julia = j.as_ref();
             render(local_dims, dims, pos, julia, &lr, &ur)
         })) {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(e) => {
                 panic!("Error: {}", e)
             }
@@ -82,13 +84,15 @@ fn start_render_jobs(
 
 struct Slice {
     dims: (u32, u32),
-    pos: (u32, u32)
+    pos: (u32, u32),
 }
 
 fn write_to_img(file_name: &str, buf: &[u8], dim: (u32, u32)) {
     let file = fs::File::create(file_name).expect("failed to create file");
     let encoder = PngEncoder::new(file);
-    encoder.write_image(buf, dim.0, dim.1, ColorType::Rgb8).expect("couldn't write image");
+    encoder
+        .write_image(buf, dim.0, dim.1, ColorType::Rgb8)
+        .expect("couldn't write image");
 }
 
 fn render(
@@ -107,20 +111,61 @@ fn render(
             let pix = (x + pos.0, y + pos.1);
             let c = pixel_to_complex(pix, global_dims, lower_left, upper_right);
             let col = match mandel_iter(c, julia, 255) {
-                Some(val) => val as u8,
-                None => 0
+                Some(val) => val,
+                None => 0,
             };
 
-            let yi = y as usize;
-            let wi = w as usize;
-            let xi = x as usize;
-            buf[(yi * wi * 3) + (xi * 3)] = col;                 // red
-            buf[(yi * wi * 3) + (xi * 3) + 1] = col / 2;         // green
-            buf[(yi * wi * 3) + (xi * 3) + 2] = col / 4;         // blue
+            let (r, g, b) = gradient(col, 255);
+            let y_i = y as usize;
+            let w_i = w as usize;
+            let x_i = x as usize;
+            buf[(y_i * w_i * 3) + (x_i * 3)] = r; // red
+            buf[(y_i * w_i * 3) + (x_i * 3) + 1] = g; // green
+            buf[(y_i * w_i * 3) + (x_i * 3) + 2] = b; // blue
         }
     }
 
     buf
+}
+
+fn gradient(iters: u32, max_iters: u32) -> (u8, u8, u8) {
+    assert!(iters <= max_iters);
+    const CHANNELS: usize = 3;
+    let mut color: [u8; 3] = [0; CHANNELS];
+    let color_range = ((255 * CHANNELS) / max_iters as usize) as u8;
+    let mut iters = iters;
+
+    for i in 0..3 {
+        for _ in 0..255 {
+            if iters == 0 || color[i] == 255 {
+                break;
+            }
+    
+            color[i] += color_range;
+
+            let lhs = if i < 1 { CHANNELS - 1 } else { i - 1 };
+            let rhs = if i > CHANNELS - 2 { 0 } else { i + 1 };
+
+            let lhs_distance = (lhs as i32 - i as i32).abs();
+            let rhs_distance = (rhs as i32 - i as i32).abs();
+            if  lhs_distance == rhs_distance {
+                // color[lhs] += color_range - (color_range / 3) * 2;
+                // color[rhs] += color_range - (color_range / 3) * 2;
+            }
+            else if lhs_distance < rhs_distance {
+                // color[lhs] += color_range - (color_range / 3) * 1;
+                // color[rhs] += color_range - (color_range / 3) * 1;
+            }
+            else if lhs_distance > rhs_distance {
+                // color[lhs] += color_range - (color_range / 3) * 1;
+                // color[rhs] += color_range - (color_range / 3) * 1;
+            }
+
+            iters -= 1;
+        }
+    }
+
+    (color[0], color[1], color[2])
 }
 
 fn mandel_iter(c: ComplexPoint<f64>, julia: Option<&ComplexPoint<f64>>, iters: u32) -> Option<u32> {
@@ -131,7 +176,7 @@ fn mandel_iter(c: ComplexPoint<f64>, julia: Option<&ComplexPoint<f64>>, iters: u
         }
         z = z.mul(&z).add(match julia {
             Some(j) => j,
-            None => &c
+            None => &c,
         });
     }
 
@@ -153,13 +198,14 @@ fn pixel_to_complex(
 
     let x = (complex_width * pixel.0 as f64) / dims.0 as f64;
     let y = (complex_height * pixel.1 as f64) / dims.1 as f64;
-    
+
     ComplexPoint::new(lower_left.re + x, lower_left.im + y)
 }
 
 fn is_in_circle(point: (f64, f64), circle_pos: (f64, f64), rad: f64) -> bool {
-    (point.0 - circle_pos.0) * (point.0 - circle_pos.0) +
-    (point.1 - circle_pos.1) * (point.1 - circle_pos.1) <= rad * rad
+    (point.0 - circle_pos.0) * (point.0 - circle_pos.0)
+        + (point.1 - circle_pos.1) * (point.1 - circle_pos.1)
+        <= rad * rad
 }
 
 struct Config {
@@ -168,7 +214,7 @@ struct Config {
     upper_right: ComplexPoint<f64>,
     julia: Option<ComplexPoint<f64>>,
     file_name: String,
-    num_threads: u32
+    num_threads: u32,
 }
 
 fn parse_args(args: &Vec<String>) -> Config {
@@ -177,17 +223,25 @@ fn parse_args(args: &Vec<String>) -> Config {
         std::process::exit(-1);
     }
 
-    let buffer_width = u32::from_str(args[1].as_str()).expect("Error: failed to parse buffer width");
-    let buffer_height = u32::from_str(args[2].as_str()).expect("Error: failed to parse buffer height");
-    
+    let buffer_width =
+        u32::from_str(args[1].as_str()).expect("Error: failed to parse buffer width");
+    let buffer_height =
+        u32::from_str(args[2].as_str()).expect("Error: failed to parse buffer height");
+
     let lower_left = match parse_complex(&args[3]) {
         Ok(val) => val,
-        Err(e) => panic!("Error: failed to parse complex number because: {} (Expected complex point)", e)
+        Err(e) => panic!(
+            "Error: failed to parse complex number because: {} (Expected complex point)",
+            e
+        ),
     };
 
     let upper_right = match parse_complex(&args[4]) {
         Ok(val) => val,
-        Err(e) => panic!("Error: failed to parse complex number because: {} (Expected complex point)", e)
+        Err(e) => panic!(
+            "Error: failed to parse complex number because: {} (Expected complex point)",
+            e
+        ),
     };
 
     let julia = match args[5].as_str() {
@@ -216,14 +270,18 @@ fn parse_args(args: &Vec<String>) -> Config {
 fn parse_complex(string: &String) -> Result<ComplexPoint<f64>, String> {
     let index = match string.find(',') {
         Some(i) => i,
-        None => return Err(String::from("structure must be two floating point values separated by a comma"))
+        None => {
+            return Err(String::from(
+                "structure must be two floating point values separated by a comma",
+            ))
+        }
     };
 
     let first = &string[..index];
     let second = &string[index + 1..];
 
-    Ok(
-        ComplexPoint::new(f64::from_str(first).expect("Error: failed to parse real"),
-        f64::from_str(second).expect("Error: failed to parse imaginary"))
-    )
+    Ok(ComplexPoint::new(
+        f64::from_str(first).expect("Error: failed to parse real"),
+        f64::from_str(second).expect("Error: failed to parse imaginary"),
+    ))
 }

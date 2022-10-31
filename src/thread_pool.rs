@@ -1,8 +1,6 @@
-use std::error;
 use std::fmt;
 use std::thread;
 
-type Job = Box<dyn FnOnce() -> Vec<u8> + Send + 'static>;
 pub struct ThreadPool {
     workers: Vec<Worker>,
 }
@@ -28,7 +26,9 @@ impl ThreadPool {
         pool
     }
 
-    pub fn run_job(&mut self, job: Job) -> Result<u32, PoolError> {
+    pub fn run_job<F>(&mut self, job: F) -> Result<u32, PoolError>
+        where F: FnOnce() -> Vec<u8> + Send + 'static
+    {
         for w in &mut self.workers {
             match w.thread {
                 Some(_) => continue,

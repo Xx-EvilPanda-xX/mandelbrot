@@ -5,42 +5,49 @@ pub struct ComplexPoint<T> {
     pub im: T,
 }
 
-impl<T> ComplexPoint<T>
-where
-    T: Mul<Output = T> + Add<Output = T> + Sub<Output = T> + Copy,
-{
+impl<T> ComplexPoint<T> {
     pub fn new(re: T, im: T) -> ComplexPoint<T> {
         ComplexPoint { re, im }
     }
+}
 
+impl<T> ComplexPoint<T>
+where
+    T: Mul<Output = T> + Add<Output = T> + Sub<Output = T> + Clone,
+{
     pub fn mul(&self, other: &ComplexPoint<T>) -> ComplexPoint<T> {
+        let re = &self.re;
+        let other_re = &other.re;
+        let im = &self.im;
+        let other_im = &other.im;
         ComplexPoint {
-            re: self.re * other.re - self.im * other.im,
-            im: self.re * other.im + self.im * other.re,
+            re: re.clone() * other_re.clone() - im.clone() * other_im.clone(),
+            im: re.clone() * other_im.clone() + im.clone() * other_re.clone(),
         }
     }
 
 }
 
 impl<T> ComplexPoint<T>
-    where T: Add<Output = T> + Copy
+    where T: Add<Output = T> + Clone
 {
     pub fn add(&self, other: &ComplexPoint<T>) -> ComplexPoint<T> {
+        let re = &self.re;
+        let other_re = &other.re;
+        let im = &self.im;
+        let other_im = &other.im;
         ComplexPoint {
-            re: self.re + other.re,
-            im: self.im + other.im,
+            re: re.clone() + other_re.clone(),
+            im: im.clone() + other_im.clone(),
         }
     }
 }
 
-impl<T> Clone for ComplexPoint<T>
-where
-    T: Mul<Output = T> + Add<Output = T> + Sub<Output = T> + Copy,
-{
+impl<T: Clone> Clone for ComplexPoint<T> {
     fn clone(&self) -> Self {
         ComplexPoint {
-            re: self.re,
-            im: self.im,
+            re: self.re.clone(),
+            im: self.im.clone(),
         }
     }
 }

@@ -1,11 +1,10 @@
-use core::panic;
-use image::{codecs::png::PngEncoder, ColorType, ImageEncoder};
-use math::ComplexPoint;
 use std::env;
-use std::fs;
-use std::str::FromStr;
+use image::ImageBuffer;
+use math::ComplexPoint;
 use thread_pool::ThreadPool;
+
 mod math;
+
 #[cfg(test)]
 mod test;
 mod thread_pool;
@@ -31,7 +30,8 @@ fn main() {
         config.num_threads
     );
 
-    write_to_img(config.file_name.as_str(), &buffer[..], dims);
+    let img_buf: ImageBuffer<image::Rgb<_>, _> = image::ImageBuffer::from_raw(config.dimensions.0, config.dimensions.1, &buffer[..]).unwrap();
+    img_buf.save(config.file_name.as_str()).expect("Failed to save img");
 }
 
 fn get_slices(config: &Config) -> Vec<Slice> {
@@ -44,7 +44,7 @@ fn get_slices(config: &Config) -> Vec<Slice> {
             } else {
                 config.dimensions.1 - y
             };
-            
+
             slices.push(
                 Slice {
                     dims: (config.dimensions.0, dim_y),
@@ -70,10 +70,16 @@ fn start_render_jobs(
         let ur = config.upper_right.clone();
         let j = config.julia.clone();
 
-        match pool.run_job(Box::new(move || {
-            let julia = j.as_ref();
-            render(local_dims, dims, pos, julia, &lr, &ur)
-        })) {
+        match pool.run_job(move || {
+            render(
+                local_dims,
+                dims,
+                pos,
+                j.as_ref(),
+                &lr,
+                &ur
+            )
+        }) {
             Ok(_) => {}
             Err(e) => {
                 panic!("Error: {}", e)
@@ -87,22 +93,15 @@ struct Slice {
     pos: (u32, u32),
 }
 
-fn write_to_img(file_name: &str, buf: &[u8], dim: (u32, u32)) {
-    let file = fs::File::create(file_name).expect("failed to create file");
-    let encoder = PngEncoder::new(file);
-    encoder
-        .write_image(buf, dim.0, dim.1, ColorType::Rgb8)
-        .expect("couldn't write image");
-}
-
 fn render(
-    local_dims: (u32, u32), 
-    global_dims: (u32, u32), 
-    pos: (u32, u32), 
-    julia: Option<&ComplexPoint<f64>>, 
-    lower_left: &ComplexPoint<f64>, 
+    local_dims: (u32, u32),
+    global_dims: (u32, u32),
+    pos: (u32, u32),
+    julia: Option<&ComplexPoint<f64>>,
+    lower_left: &ComplexPoint<f64>,
     upper_right: &ComplexPoint<f64>
 ) -> Vec<u8> {
+    const MAX_ITERS: u32 = 255;
     let mut buf = vec![0; local_dims.0 as usize * local_dims.1 as usize * 3];
 
     let (w, h) = local_dims;
@@ -110,12 +109,12 @@ fn render(
         for x in 0..w {
             let pix = (x + pos.0, y + pos.1);
             let c = pixel_to_complex(pix, global_dims, lower_left, upper_right);
-            let col = match mandel_iter(c, julia, 255) {
+            let col = match mandel_iter(c, julia, MAX_ITERS) {
                 Some(val) => val,
                 None => 0,
             };
 
-            let (r, g, b) = gradient(col, 255);
+            let (r, g, b) = gradient(col, MAX_ITERS, pix);
             let y_i = y as usize;
             let w_i = w as usize;
             let x_i = x as usize;
@@ -128,7 +127,52 @@ fn render(
     buf
 }
 
-fn gradient(iters: u32, max_iters: u32) -> (u8, u8, u8) {
+const RED_COEF: (bool, u8) = (true, 1);
+const GREEN_COEF: (bool, u8) = (false, 2);
+const BLUE_COEF: (bool, u8) = (false, 1);
+
+fn gradient(iters: u32, max_iters: u32, _pos: (u32, u32)) -> (u8, u8, u8) {
+    assert!(iters <= max_iters);
+    let iters = iters as u64;
+    let max_iters = max_iters as u64;
+
+    let r = if RED_COEF.0 {
+        wraping_add(0, iters * iters * iters, max_iters) as u8 / RED_COEF.1
+    } else {
+        (iters as f32 / max_iters as f32 * 255.0) as u8 / RED_COEF.1
+    };
+
+
+    let g = if GREEN_COEF.0 {
+        wraping_add(0, iters * iters * iters * iters, max_iters) as u8 / GREEN_COEF.1
+    } else {
+        (iters as f32 / max_iters as f32 * 255.0) as u8 / GREEN_COEF.1
+    };
+
+    let b = if BLUE_COEF.0 {
+        wraping_add(0, iters * iters * iters * iters * iters, max_iters) as u8 / BLUE_COEF.1
+    } else {
+        (iters as f32 / max_iters as f32 * 255.0) as u8 / BLUE_COEF.1
+    };
+
+    (r, g, b)
+}
+
+fn wraping_add(mut addend1: u64, addend2: u64, wrap_at: u64) -> u64 {
+    if addend1 >= wrap_at {
+        addend1 = wraping_add(0, addend1, wrap_at);
+    }
+
+    let add = addend1 + addend2;
+    if add < wrap_at {
+        return add;
+    }
+
+    let diff = addend2 - (wrap_at - addend1);
+    diff % wrap_at
+}
+
+fn _gradient2(iters: u32, max_iters: u32) -> (u8, u8, u8) {
     assert!(iters <= max_iters);
     const CHANNELS: usize = 3;
     let mut color: [u8; 3] = [0; CHANNELS];
@@ -140,27 +184,8 @@ fn gradient(iters: u32, max_iters: u32) -> (u8, u8, u8) {
             if iters == 0 || color[i] == 255 {
                 break;
             }
-    
+
             color[i] += color_range;
-
-            let lhs = if i < 1 { CHANNELS - 1 } else { i - 1 };
-            let rhs = if i > CHANNELS - 2 { 0 } else { i + 1 };
-
-            let lhs_distance = (lhs as i32 - i as i32).abs();
-            let rhs_distance = (rhs as i32 - i as i32).abs();
-            if  lhs_distance == rhs_distance {
-                // color[lhs] += color_range - (color_range / 3) * 2;
-                // color[rhs] += color_range - (color_range / 3) * 2;
-            }
-            else if lhs_distance < rhs_distance {
-                // color[lhs] += color_range - (color_range / 3) * 1;
-                // color[rhs] += color_range - (color_range / 3) * 1;
-            }
-            else if lhs_distance > rhs_distance {
-                // color[lhs] += color_range - (color_range / 3) * 1;
-                // color[rhs] += color_range - (color_range / 3) * 1;
-            }
-
             iters -= 1;
         }
     }
@@ -217,16 +242,14 @@ struct Config {
     num_threads: u32,
 }
 
-fn parse_args(args: &Vec<String>) -> Config {
+fn parse_args(args: &[String]) -> Config {
     if args.len() != 8 {
         println!("USAGE: {} [img_width] [img_height] [ll.x,ll.y] [ur.x,ur.y] [julia] [file_name] [num_threads]", args[0]);
         std::process::exit(-1);
     }
 
-    let buffer_width =
-        u32::from_str(args[1].as_str()).expect("Error: failed to parse buffer width");
-    let buffer_height =
-        u32::from_str(args[2].as_str()).expect("Error: failed to parse buffer height");
+    let buffer_width = args[1].parse().expect("Error: failed to parse buffer width");
+    let buffer_height = args[2].parse().expect("Error: failed to parse buffer height");
 
     let lower_left = match parse_complex(&args[3]) {
         Ok(val) => val,
@@ -255,7 +278,7 @@ fn parse_args(args: &Vec<String>) -> Config {
         }
     };
 
-    let num_threads = u32::from_str(args[7].as_str()).expect("Failed to parse number of threads");
+    let num_threads = args[7].parse().expect("Failed to parse number of threads");
 
     Config { 
         dimensions: (buffer_width, buffer_height),
@@ -281,7 +304,7 @@ fn parse_complex(string: &String) -> Result<ComplexPoint<f64>, String> {
     let second = &string[index + 1..];
 
     Ok(ComplexPoint::new(
-        f64::from_str(first).expect("Error: failed to parse real"),
-        f64::from_str(second).expect("Error: failed to parse imaginary"),
+        first.parse().expect("Error: failed to parse real"),
+        second.parse().expect("Error: failed to parse imaginary"),
     ))
 }

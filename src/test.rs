@@ -1,5 +1,6 @@
 use crate::pixel_to_complex;
 use crate::ComplexPoint;
+use crate::wraping_add;
 
 #[test]
 fn complex_mul() {
@@ -29,4 +30,11 @@ fn pixel_complex() {
     let complex = pixel_to_complex(pixel, dimensions, &lower_left, &upper_right);
     assert_eq!(complex.re, answer.re);
     assert_eq!(complex.im, answer.im);
+}
+
+#[test]
+fn test_wraping_add() {
+    assert_eq!(wraping_add(5, 9, 10), 4);
+    assert_eq!(wraping_add(5, 3, 10), 8);
+    assert_eq!(wraping_add(8, 15, 10), 3);
 }

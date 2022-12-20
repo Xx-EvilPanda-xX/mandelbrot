@@ -44,24 +44,32 @@ impl ThreadPool {
         })
     }
 
-    pub fn join_all(self, dims: (u32, u32)) -> Result<Vec<u8>, PoolError> {
+    pub fn join_all(&mut self, dims: (u32, u32), thread_ids: &[u32]) -> Result<Vec<u8>, PoolError> {
         let mut out_buf = vec![0; dims.0 as usize * dims.1 as usize * 3];
         let mut index = 0;
 
-        for w in self.workers {
-            if let Some(handle) = w.thread {
-                match handle.join() {
-                    Ok(ret) => {
-                        for pix in ret {
-                            out_buf[index] = pix;
-                            index += 1;
-                        }
+        for thread_id in thread_ids {
+            let handle =
+                self
+                .workers
+                .iter_mut()
+                .find(|Worker { id, .. }| id == thread_id)
+                .ok_or(PoolError { why: String::from("no such render thread") })?
+                .thread
+                .take()
+                .ok_or(PoolError { why: String::from("render thread already killed") })?;
+
+            match handle.join() {
+                Ok(ret) => {
+                    for pix in ret {
+                        out_buf[index] = pix;
+                        index += 1;
                     }
-                    Err(_) => {
-                        return Err(PoolError {
-                            why: String::from("Failed to join thread"),
-                        })
-                    }
+                }
+                Err(_) => {
+                    return Err(PoolError {
+                        why: String::from("failed to join thread"),
+                    });
                 }
             }
         }
@@ -70,7 +78,7 @@ impl ThreadPool {
             Ok(out_buf)
         } else {
             Err(PoolError {
-                why: String::from("No threads running"),
+                why: String::from("no threads running"),
             })
         }
     }

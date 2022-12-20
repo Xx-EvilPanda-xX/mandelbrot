@@ -17,14 +17,15 @@ fn main() {
     let slices = get_slices(&config);
     let mut pool = ThreadPool::new(config.num_threads);
 
-    start_render_jobs(&mut pool, &slices, &config, dims);
+    let thread_ids = start_render_jobs(&mut pool, &slices, &config, dims);
 
-    let buffer = match pool.join_all(dims) {
+    let buffer = match pool.join_all(dims, &thread_ids) {
         Ok(b) => b,
         Err(e) => {
             panic!("Error: {}", e)
         }
     };
+    
     println!(
         "Finished rendering across {} threads, writing to file...",
         config.num_threads
@@ -38,7 +39,7 @@ fn get_slices(config: &Config) -> Vec<Slice> {
     let mut slices = Vec::new();
     let rows_per_slice = config.dimensions.1 / config.num_threads;
     for y in 0..config.dimensions.1 {
-        if y % rows_per_slice == 0 || y == config.dimensions.1 {
+        if y % rows_per_slice == 0 {
             let dim_y = if y + rows_per_slice <= config.dimensions.1 {
                 rows_per_slice
             } else {
@@ -62,7 +63,9 @@ fn start_render_jobs(
     slices: &[Slice],
     config: &Config,
     dims: (u32, u32)
-) {
+) -> Vec<u32> {
+    let mut thread_ids = Vec::new();
+
     for i in 0..config.num_threads.try_into().unwrap() {
         let local_dims = slices[i].dims;
         let pos = slices[i].pos;
@@ -80,12 +83,14 @@ fn start_render_jobs(
                 &ur
             )
         }) {
-            Ok(_) => {}
+            Ok(thread_id) => thread_ids.push(thread_id),
             Err(e) => {
                 panic!("Error: {}", e)
             }
         };
     }
+
+    thread_ids
 }
 
 struct Slice {
